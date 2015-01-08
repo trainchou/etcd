@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/coreos/etcd/discovery"
 	"github.com/coreos/etcd/etcdserver"
@@ -125,7 +126,7 @@ func startEtcd(cfg *config) (<-chan struct{}, error) {
 	clns := make([]net.Listener, 0)
 	for _, u := range cfg.lcurls {
 		var l net.Listener
-		l, err = transport.NewListener(u.Host, u.Scheme, cfg.clientTLSInfo)
+		l, err = transport.NewKeepAliveListener(u.Host, u.Scheme, cfg.clientTLSInfo)
 		if err != nil {
 			return nil, err
 		}
@@ -174,13 +175,15 @@ func startEtcd(cfg *config) (<-chan struct{}, error) {
 	// Start the peer server in a goroutine
 	for _, l := range plns {
 		go func(l net.Listener) {
-			log.Fatal(serveHTTP(l, ph))
+			log.Fatal(serveHTTP(l, ph, 5*time.Minute))
 		}(l)
 	}
 	// Start a client server goroutine for each listen address
 	for _, l := range clns {
 		go func(l net.Listener) {
-			log.Fatal(serveHTTP(l, ch))
+			// read timeout does not work with http close notify
+			// TODO: https://github.com/golang/go/issues/9524
+			log.Fatal(serveHTTP(l, ch, 0))
 		}(l)
 	}
 	return s.StopNotify(), nil
